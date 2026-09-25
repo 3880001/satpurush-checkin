@@ -76,6 +76,20 @@
       margin-top: 20px;
       background: #333 !important;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
   </style>
 </head>
 <body>
@@ -112,13 +126,17 @@
 
     const card = document.getElementById("card");
 
+    function todayDate() {
+      return new Date().toISOString().split("T")[0];
+    }
+
     function render() {
       const { step, phone, name, loading, error } = state;
 
       if (step === "phone") {
         card.innerHTML = `
           <h1>My Check-In</h1>
-          <p>મહેરબાની કરીને તમારો ફોન નંબર દાખલ કરો.</p>
+          <p>Welcome! કૃપા કરી તમારો ફોન નંબર દાખલ કરો.</p>
           <form id="phoneForm">
             <input type="tel" placeholder="Phone number" value="${phone}" required />
             <button type="submit" ${loading ? "disabled" : ""}>
@@ -137,7 +155,7 @@
       if (step === "register") {
         card.innerHTML = `
           <h1>My Check-In</h1>
-          <p>તમારી વિગતો દાખલ કરો.</p>
+          <p>કૃપા કરી તમારી વિગતો દાખલ કરો.</p>
           <form id="registerForm">
             <input type="text" placeholder="Full name" value="${name}" required />
             <input type="tel" placeholder="Phone number" value="${phone}" required />
@@ -161,7 +179,7 @@
       if (step === "welcome") {
         card.innerHTML = `
           <h1>સ્વાગત છે, ${welcomeName}!</h1>
-          <p>તમે ફરીથી કાર્યક્રમમાં આવ્યાં — ખૂબ આનંદ થયો.</p>
+          <p>તમે ફરીથી પરા સભા કાર્યક્રમમાં આવ્યાં — ખૂબ આનંદ થયો.</p>
           <p>તમે અત્યાર સુધી કુલ <strong>${visitCount}</strong> વખત હાજરી આપી છે.</p>
           <p>બાળકો (0–8): <strong>${kidsCount}</strong></p>
           <p>વયસ્ક (8+): <strong>${regularCount}</strong></p>
@@ -171,7 +189,7 @@
       if (step === "thankyou") {
         card.innerHTML = `
           <h1>આભાર!</h1>
-          <p>કાર્યક્રમમાં હાજરી આપવા બદલ ખૂબ ખૂબ આભાર.</p>
+          <p>પરા સભા કાર્યક્રમમાં હાજરી આપવા બદલ ખૂબ ખૂબ આભાર.</p>
           <p>તમારું ચેક-ઇન સફળ થયું.</p>
         `;
       }
@@ -184,7 +202,7 @@
       render();
 
       try {
-        const { data, error } = await supabase
+        const { data: attendee, error } = await supabase
           .from("attendees")
           .select("*")
           .eq("phone", state.phone)
@@ -197,11 +215,47 @@
           return;
         }
 
-        if (data) {
-          welcomeName = data.name;
-          visitCount = data.visit_count;
-          kidsCount = data.kids_count;
-          regularCount = data.regular_count;
+        if (attendee) {
+          // Check if already checked in today
+          const { data: todayCheck, error: checkErr } = await supabase
+            .from("checkins")
+            .select("*")
+            .eq("attendee_id", attendee.id)
+            .eq("checkin_date", todayDate())
+            .maybeSingle();
+
+          if (todayCheck) {
+            state.step = "thankyou";
+            card.innerHTML = `
+              <h1>આભાર!</h1>
+              <p>તમે આજે પહેલેથી જ ચેક-ઇન કરી દીધું છે.</p>
+            `;
+            return;
+          }
+
+          // Not checked in today → allow check-in
+          welcomeName = attendee.name;
+          kidsCount = attendee.kids_count;
+          regularCount = attendee.regular_count;
+
+          // Update visit count
+          await supabase
+            .from("attendees")
+            .update({
+              visit_count: attendee.visit_count + 1,
+              last_visit: new Date().toISOString()
+            })
+            .eq("id", attendee.id);
+
+          visitCount = attendee.visit_count + 1;
+
+          // Insert into checkins table
+          await supabase.from("checkins").insert({
+            attendee_id: attendee.id,
+            checkin_date: todayDate(),
+            kids_count: attendee.kids_count,
+            regular_count: attendee.regular_count
+          });
 
           state.step = "welcome";
         } else {
@@ -225,12 +279,16 @@
         const kids = parseInt(document.getElementById("kidsCount").value);
         const regular = parseInt(document.getElementById("regularCount").value);
 
-        const { error } = await supabase.from("attendees").insert({
-          name: state.name,
-          phone: state.phone,
-          kids_count: kids,
-          regular_count: regular
-        });
+        const { data: attendee, error } = await supabase
+          .from("attendees")
+          .insert({
+            name: state.name,
+            phone: state.phone,
+            kids_count: kids,
+            regular_count: regular
+          })
+          .select()
+          .single();
 
         if (error) {
           state.error = "Could not register.";
@@ -238,6 +296,14 @@
           render();
           return;
         }
+
+        // Insert today's check-in
+        await supabase.from("checkins").insert({
+          attendee_id: attendee.id,
+          checkin_date: todayDate(),
+          kids_count: kids,
+          regular_count: regular
+        });
 
         state.step = "thankyou";
       } catch (err) {
@@ -249,10 +315,16 @@
     }
 
     async function loadAdmin() {
+      const pass = prompt("Enter admin password:");
+      if (pass !== "satpurush2024") {
+        alert("Unauthorized");
+        return;
+      }
+
       const { data, error } = await supabase
-        .from("attendees")
-        .select("*")
-        .order("last_visit", { ascending: false });
+        .from("checkins")
+        .select("*, attendees(name, phone, visit_count)")
+        .order("checkin_date", { ascending: false });
 
       if (error) {
         card.innerHTML = "<p>Error loading admin dashboard.</p>";
@@ -261,26 +333,95 @@
 
       let html = `
         <h1>Admin Dashboard</h1>
-        <p>Total attendees: ${data.length}</p>
-        <div style="text-align:left; max-height:300px; overflow:auto;">
+        <p>Total check-ins: ${data.length}</p>
+
+        <button onclick="downloadCSVByDate()">Download CSV by Date</button>
+        <button onclick="downloadCSVByUser()">Download CSV by User</button>
+        <button onclick="downloadCSVAll()">Download Full CSV</button>
+
+        <table>
+          <tr>
+            <th>Date</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Visit Count</th>
+            <th>Kids</th>
+            <th>Regular</th>
+          </tr>
       `;
 
-      data.forEach(a => {
+      data.forEach(row => {
         html += `
-          <div style="padding:10px; border-bottom:1px solid #ddd;">
-            <strong>${a.name}</strong><br/>
-            Phone: ${a.phone}<br/>
-            Kids (0–8): ${a.kids_count}<br/>
-            Regular (8+): ${a.regular_count}<br/>
-            Visits: ${a.visit_count}<br/>
-            Last Visit: ${new Date(a.last_visit).toLocaleString()}
-          </div>
+          <tr>
+            <td>${row.checkin_date}</td>
+            <td>${row.attendees.name}</td>
+            <td>${row.attendees.phone}</td>
+            <td>${row.attendees.visit_count}</td>
+            <td>${row.kids_count}</td>
+            <td>${row.regular_count}</td>
+          </tr>
         `;
       });
 
-      html += "</div>";
+      html += "</table>";
 
       card.innerHTML = html;
+    }
+
+    function downloadCSV(rows, filename) {
+      const csv = [
+        ["Date", "Name", "Phone", "Visit Count", "Kids", "Regular"],
+        ...rows.map(r => [
+          r.checkin_date,
+          r.attendees.name,
+          r.attendees.phone,
+          r.attendees.visit_count,
+          r.kids_count,
+          r.regular_count
+        ])
+      ]
+        .map(e => e.join(","))
+        .join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+    }
+
+    async function downloadCSVByDate() {
+      const date = prompt("Enter date (YYYY-MM-DD):");
+      if (!date) return;
+
+      const { data } = await supabase
+        .from("checkins")
+        .select("*, attendees(name, phone, visit_count)")
+        .eq("checkin_date", date);
+
+      downloadCSV(data, `checkins_${date}.csv`);
+    }
+
+    async function downloadCSVByUser() {
+      const phone = prompt("Enter phone number:");
+      if (!phone) return;
+
+      const { data } = await supabase
+        .from("checkins")
+        .select("*, attendees(name, phone, visit_count)")
+        .eq("attendees.phone", phone);
+
+      downloadCSV(data, `checkins_${phone}.csv`);
+    }
+
+    async function downloadCSVAll() {
+      const { data } = await supabase
+        .from("checkins")
+        .select("*, attendees(name, phone, visit_count)");
+
+      downloadCSV(data, `checkins_all.csv`);
     }
 
     render();
