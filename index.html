@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>My Check-In</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f2f2f7;
+    }
+    .header {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .header img {
+      width: 120px;
+      border-radius: 12px;
+    }
+    .app {
+      min-height: 80vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 16px;
+      max-width: 360px;
+      width: 90%;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+    h1 {
+      margin-bottom: 12px;
+      color: #1c1c1e;
+      font-size: 22px;
+    }
+    p {
+      margin-bottom: 16px;
+      color: #3a3a3c;
+      font-size: 15px;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+      border: 1px solid #d1d1d6;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: none;
+      background: #0a84ff;
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: default;
+    }
+    .error {
+      color: #ff3b30;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    .admin-btn {
+      margin-top: 20px;
+      background: #333 !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <img src="https://assets.brandfetch.io/baps.org/logo.png?format=png&size=400" />
+  </div>
+
+  <div class="app">
+    <div class="card" id="card"></div>
+  </div>
+
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.1/dist/umd/supabase.js"></script>
+
+  <script>
+    const SUPABASE_URL = "https://unbzinjcrnniaqjbnjcb.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_4x-VTWA2nSW-toJxFIkpiw_ZFhCb7bA";
+
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let state = {
+      step: "phone",
+      phone: "",
+      name: "",
+      loading: false,
+      error: ""
+    };
+
+    let welcomeName = "";
+    let visitCount = 0;
+    let kidsCount = 0;
+    let regularCount = 0;
+
+    const card = document.getElementById("card");
+
+    function render() {
+      const { step, phone, name, loading, error } = state;
+
+      if (step === "phone") {
+        card.innerHTML = `
+          <h1>My Check-In</h1>
+          <p>મહેરબાની કરીને તમારો ફોન નંબર દાખલ કરો.</p>
+          <form id="phoneForm">
+            <input type="tel" placeholder="Phone number" value="${phone}" required />
+            <button type="submit" ${loading ? "disabled" : ""}>
+              ${loading ? "Checking..." : "Continue"}
+            </button>
+          </form>
+          ${error ? `<p class="error">${error}</p>` : ""}
+          <button class="admin-btn" onclick="loadAdmin()">Admin Dashboard</button>
+        `;
+        document.getElementById("phoneForm").onsubmit = handlePhoneSubmit;
+        document.querySelector("#phoneForm input").oninput = (e) => {
+          state.phone = e.target.value;
+        };
+      }
+
+      if (step === "register") {
+        card.innerHTML = `
+          <h1>My Check-In</h1>
+          <p>તમારી વિગતો દાખલ કરો.</p>
+          <form id="registerForm">
+            <input type="text" placeholder="Full name" value="${name}" required />
+            <input type="tel" placeholder="Phone number" value="${phone}" required />
+
+            <input type="number" min="0" placeholder="Kids (0-8 years)" id="kidsCount" required />
+            <input type="number" min="0" placeholder="Regular attendees (8+ years)" id="regularCount" required />
+
+            <button type="submit" ${loading ? "disabled" : ""}>
+              ${loading ? "Saving..." : "Check In"}
+            </button>
+          </form>
+          ${error ? `<p class="error">${error}</p>` : ""}
+        `;
+        const inputs = document.querySelectorAll("#registerForm input");
+        inputs[0].oninput = (e) => (state.name = e.target.value);
+        inputs[1].oninput = (e) => (state.phone = e.target.value);
+
+        document.getElementById("registerForm").onsubmit = handleRegisterSubmit;
+      }
+
+      if (step === "welcome") {
+        card.innerHTML = `
+          <h1>સ્વાગત છે, ${welcomeName}!</h1>
+          <p>તમે ફરીથી કાર્યક્રમમાં આવ્યાં — ખૂબ આનંદ થયો.</p>
+          <p>તમે અત્યાર સુધી કુલ <strong>${visitCount}</strong> વખત હાજરી આપી છે.</p>
+          <p>બાળકો (0–8): <strong>${kidsCount}</strong></p>
+          <p>વયસ્ક (8+): <strong>${regularCount}</strong></p>
+        `;
+      }
+
+      if (step === "thankyou") {
+        card.innerHTML = `
+          <h1>આભાર!</h1>
+          <p>કાર્યક્રમમાં હાજરી આપવા બદલ ખૂબ ખૂબ આભાર.</p>
+          <p>તમારું ચેક-ઇન સફળ થયું.</p>
+        `;
+      }
+    }
+
+    async function handlePhoneSubmit(e) {
+      e.preventDefault();
+      state.loading = true;
+      state.error = "";
+      render();
+
+      try {
+        const { data, error } = await supabase
+          .from("attendees")
+          .select("*")
+          .eq("phone", state.phone)
+          .maybeSingle();
+
+        if (error) {
+          state.error = "કોઈ ભૂલ થઈ. ફરી પ્રયાસ કરો.";
+          state.loading = false;
+          render();
+          return;
+        }
+
+        if (data) {
+          welcomeName = data.name;
+          visitCount = data.visit_count;
+          kidsCount = data.kids_count;
+          regularCount = data.regular_count;
+
+          state.step = "welcome";
+        } else {
+          state.step = "register";
+        }
+      } catch (err) {
+        state.error = "Unexpected error.";
+      }
+
+      state.loading = false;
+      render();
+    }
+
+    async function handleRegisterSubmit(e) {
+      e.preventDefault();
+      state.loading = true;
+      state.error = "";
+      render();
+
+      try {
+        const kids = parseInt(document.getElementById("kidsCount").value);
+        const regular = parseInt(document.getElementById("regularCount").value);
+
+        const { error } = await supabase.from("attendees").insert({
+          name: state.name,
+          phone: state.phone,
+          kids_count: kids,
+          regular_count: regular
+        });
+
+        if (error) {
+          state.error = "Could not register.";
+          state.loading = false;
+          render();
+          return;
+        }
+
+        state.step = "thankyou";
+      } catch (err) {
+        state.error = "Unexpected error.";
+      }
+
+      state.loading = false;
+      render();
+    }
+
+    async function loadAdmin() {
+      const { data, error } = await supabase
+        .from("attendees")
+        .select("*")
+        .order("last_visit", { ascending: false });
+
+      if (error) {
+        card.innerHTML = "<p>Error loading admin dashboard.</p>";
+        return;
+      }
+
+      let html = `
+        <h1>Admin Dashboard</h1>
+        <p>Total attendees: ${data.length}</p>
+        <div style="text-align:left; max-height:300px; overflow:auto;">
+      `;
+
+      data.forEach(a => {
+        html += `
+          <div style="padding:10px; border-bottom:1px solid #ddd;">
+            <strong>${a.name}</strong><br/>
+            Phone: ${a.phone}<br/>
+            Kids (0–8): ${a.kids_count}<br/>
+            Regular (8+): ${a.regular_count}<br/>
+            Visits: ${a.visit_count}<br/>
+            Last Visit: ${new Date(a.last_visit).toLocaleString()}
+          </div>
+        `;
+      });
+
+      html += "</div>";
+
+      card.innerHTML = html;
+    }
+
+    render();
+  </script>
+</body>
+</html>
