@@ -95,7 +95,7 @@
     const SUPABASE_URL = "https://unbzinjcrnniaqjbnjcb.supabase.co";
     const SUPABASE_KEY = "sb_publishable_4x-VTWA2nSW-toJxFIkpiw_ZFhCb7bA";
 
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let state = {
       step: "phone",
